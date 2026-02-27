@@ -1,26 +1,410 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Weebora Brand Colors */
+  --wb-brand: #3A2895;
+  --wb-brand-dark: #2B1D78;
+  --wb-brand-light: #EEE9FF;
+  --wb-brand-xlight: #F5F2FF;
+
+  --wb-teal: #3EC9C1;
+  --wb-teal-light: #E6F9F8;
+
+  --wb-coral: #FF7070;
+  --wb-coral-light: #FFEDED;
+
+  /* Backgrounds */
+  --wb-bg: #F5F4FA;
+  --wb-card: #FFFFFF;
+  --wb-sidebar: #FFFFFF;
+
+  /* Borders */
+  --wb-border: #E4E0F0;
+  --wb-border-light: #F0EDF8;
+
+  /* Text */
+  --wb-text: #1A1530;
+  --wb-text-muted: #6B6882;
+  --wb-text-light: #9E9BAC;
+
+  /* Shadows */
+  --wb-shadow-sm: 0 1px 3px 0 rgba(58, 40, 149, 0.06), 0 1px 2px -1px rgba(58, 40, 149, 0.04);
+  --wb-shadow: 0 4px 12px 0 rgba(58, 40, 149, 0.08), 0 2px 4px -2px rgba(58, 40, 149, 0.05);
+  --wb-shadow-lg: 0 10px 30px -3px rgba(58, 40, 149, 0.12), 0 4px 12px -4px rgba(58, 40, 149, 0.07);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-background: var(--wb-bg);
+  --color-foreground: var(--wb-text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--wb-bg);
+  color: var(--wb-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D5D0E8; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #B8B2D4; }
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fadeIn 0.25s ease-out; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #f0edf8 25%, #e8e3f4 50%, #f0edf8 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PDF / Quote print styles
+   All .pdf-* classes are defined here so the react-to-print iframe inherits them
+───────────────────────────────────────────────────────────────────────────── */
+.pdf-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  color: #1A1530;
+  background: #ffffff;
+  width: 794px;          /* A4 at 96dpi */
+  min-height: 1123px;
+  padding: 48px 52px;
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+
+/* Header */
+.pdf-header {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #3A2895;
+}
+.pdf-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.pdf-logo {
+  height: 32px !important;
+  width: auto !important;
+  object-fit: contain;
+}
+.pdf-category-badge {
+  background: #EEE9FF;
+  color: #3A2895;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.pdf-header-body { margin-top: 4px; }
+.pdf-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #1A1530;
+  line-height: 1.25;
+  margin: 0 0 6px;
+}
+.pdf-subtitle {
+  font-size: 14px;
+  color: #6B6882;
+  margin: 0 0 14px;
+}
+.pdf-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+.pdf-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #6B6882;
+}
+.pdf-meta-price {
+  font-weight: 700;
+  color: #3A2895;
+  font-size: 13px;
+}
+
+/* Highlights grid */
+.pdf-highlights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.pdf-highlight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #EEE9FF;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #1A1530;
+}
+
+/* Sections */
+.pdf-section {
+  margin-bottom: 24px;
+  break-inside: avoid;
+}
+.pdf-section-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #3A2895;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #E4E0F0;
+}
+.pdf-subheading {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1A1530;
+  margin: 0 0 4px;
+}
+.pdf-location-tag {
+  font-size: 11px;
+  color: #9E9BAC;
+  margin: 0 0 6px;
+}
+.pdf-body-text {
+  font-size: 12px;
+  color: #6B6882;
+  line-height: 1.65;
+  margin: 0 0 8px;
+}
+.pdf-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pdf-tag {
+  background: #EEE9FF;
+  color: #3A2895;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+/* Info box */
+.pdf-info-box {
+  background: #FAFAF9;
+  border: 1px solid #E4E0F0;
+  border-radius: 10px;
+  padding: 14px;
+}
+.pdf-info-box--purple {
+  background: #F5F2FF;
+  border-color: #3A2895;
+}
+
+/* Program profile */
+.pdf-profile-box {
+  background: #FAFAF9;
+  border: 1px solid #E4E0F0;
+  border-radius: 10px;
+  padding: 14px;
+}
+.pdf-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.pdf-skill-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1A1530;
+  width: 72px;
+  flex-shrink: 0;
+}
+.pdf-balls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.pdf-skill-score {
+  font-size: 11px;
+  font-weight: 700;
+  color: #3EC9C1;
+  background: #E6F9F8;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+.pdf-intensity {
+  border-top: 1px solid #F0EDF8;
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.pdf-intensity-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.pdf-intensity-badge {
+  background: #E6F9F8;
+  color: #1FA89E;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.pdf-intensity-track {
+  height: 7px;
+  background: #E4E0F0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.pdf-intensity-fill {
+  height: 100%;
+  background: linear-gradient(to right, #E4E0F0, #3EC9C1);
+  border-radius: 999px;
+}
+
+/* Inclusions */
+.pdf-inclusions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.pdf-list-heading {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9E9BAC;
+  margin: 0 0 8px;
+}
+.pdf-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.pdf-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  color: #1A1530;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+/* Travel program */
+.pdf-day {
+  margin-bottom: 12px;
+  border: 1px solid #E4E0F0;
+  border-radius: 10px;
+  overflow: hidden;
+  break-inside: avoid;
+}
+.pdf-day-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: #F5F2FF;
+}
+.pdf-day-badge {
+  background: #3A2895;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.pdf-day-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1A1530;
+}
+.pdf-activities {
+  padding: 10px 12px;
+  background: white;
+}
+.pdf-activity {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+.pdf-activity-time {
+  color: #9E9BAC;
+  font-family: monospace;
+  width: 60px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+.pdf-activity-desc { color: #6B6882; }
+
+/* Cancellation */
+.pdf-cancellation-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 12px;
+  background: #FAFAF9;
+  border: 1px solid #E4E0F0;
+  border-radius: 8px;
+  margin-bottom: 5px;
+}
+
+/* Hotel header */
+.pdf-hotel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Footer */
+.pdf-footer {
+  margin-top: 40px;
+  break-inside: avoid;
+}
+.pdf-footer-line {
+  height: 2px;
+  background: linear-gradient(to right, #3A2895, #3EC9C1);
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.pdf-footer-content {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #9E9BAC;
+}
+
+/* Print media query – hide everything except the PDF root */
+@media print {
+  body > * { display: none !important; }
+  .pdf-print-frame { display: block !important; }
 }

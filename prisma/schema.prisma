@@ -1,0 +1,157 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  products      Product[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+enum Category {
+  ACADEMY
+  HOLIDAY
+  TOURNAMENT
+  GROUP_TRIP
+}
+
+enum ProductStatus {
+  DRAFT
+  GENERATING
+  GENERATED
+  CURATED
+}
+
+enum Language {
+  EN
+  IT
+  ES
+  FR
+}
+
+model Product {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category         Category
+  status           ProductStatus @default(DRAFT)
+  briefDocumentUrl String?
+  briefText        String?
+  contents         ProductContent[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model ProductContent {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  language  Language
+
+  // Hero
+  title           String?
+  subtitle        String?
+  location        String?
+  country         String?
+  duration        String?
+  priceFrom       String?
+  difficultyLevel String?
+  highlights      Json?
+
+  // The Experience
+  experienceDescription String?
+
+  // Venue
+  venueName        String?
+  venueLocation    String?
+  venueDescription String?
+  venueAmenities   Json?
+
+  // Travel Detail
+  travelDetailDescription String?
+
+  // Inclusions
+  includedItems    Json?
+  notIncludedItems Json?
+
+  // Travel Program / Itinerary
+  travelProgram Json?
+
+  // Accommodation
+  hotelName        String?
+  hotelStars       Int?
+  hotelDescription String?
+  hotelAmenities   Json?
+
+  // Cancellation Policy
+  cancellationPolicy Json?
+
+  // Partner
+  partnerName        String?
+  partnerDescription String?
+
+  // Useful Information
+  usefulInformation String?
+
+  // SEO
+  metaTitle       String?
+  metaDescription String?
+  slug            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, language])
+}
