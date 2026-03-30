@@ -82,7 +82,7 @@ export function SectionHero({ content, onChange }: Props) {
         </div>
       </div>
 
-      {/* Short description — 600 char cap */}
+      {/* Short description — 65 char cap */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <Label>Short Description</Label>
