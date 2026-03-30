@@ -6,7 +6,9 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const MODEL = "claude-sonnet-4-5-20250929"
+const MODEL_SONNET = "claude-sonnet-4-5-20250929"
+// Haiku is ~20x cheaper than Sonnet — used for translations (structured rewrite, no creativity needed)
+const MODEL_HAIKU  = "claude-3-5-haiku-20241022"
 
 export interface ProductContentData {
   // Hero
@@ -69,14 +71,8 @@ export interface ProductContentData {
   metaDescription: string
   slug: string
 
-  // Padel / Relax balance (0 = full Padel, 100 = full Relax)
-  balanceScore?: number
-
-  // Program Profile – skill ratings (1–5) and intensity (0 = Relax, 100 = full Padel)
-  profileTechnique?: number
-  profileTactics?: number
-  profilePlay?: number
-  profileIntensity?: number
+  // Short description (≤ 65 chars — used for cards & listings)
+  shortDescription: string
 }
 
 const CONTENT_SCHEMA = `{
@@ -88,12 +84,15 @@ const CONTENT_SCHEMA = `{
   "priceFrom": "string (e.g. '€499')",
   "difficultyLevel": "string (e.g. 'All levels' / 'Intermediate & Advanced')",
   "highlights": [
-    "string — benefit bullet, ≤12 words, starts with number or verb, contains keyword or specific detail",
-    "string — benefit bullet, ≤12 words, starts with number or verb, contains keyword or specific detail",
-    "string — benefit bullet, ≤12 words, starts with number or verb, contains keyword or specific detail",
-    "string — benefit bullet, ≤12 words, starts with number or verb, contains keyword or specific detail"
+    "string — short keyword tag, 1–4 words MAX. Evocative & specific. E.g. '5-Star Hotel', 'Small Groups', '16h Coaching', 'Beachfront Courts', 'Video Analysis', 'Food Included'. No verbs, no sentences.",
+    "string — short keyword tag, 1–4 words MAX",
+    "string — short keyword tag, 1–4 words MAX",
+    "string — short keyword tag, 1–4 words MAX",
+    "string — short keyword tag, 1–4 words MAX",
+    "string — short keyword tag, 1–4 words MAX"
   ],
-  "experienceShort": "string — 400–600 chars. Opens with primary keyword or location. 1–2% keyword density. Covers: location + activity type + coach credential + USP. No generic phrases.",
+  "shortDescription": "string — STRICTLY ≤65 chars. Ultra-concise product summary for cards and listings. Primary keyword + location + key USP. No generic phrases.",
+  "experienceShort": "string — 400–600 chars. Narrative, sensory, emotionally engaging version of the experience. Different tone from shortDescription.",
   "venueName": "string — exact venue/club name",
   "venueLocation": "string — city, country",
   "venueDescription": "string — venue name + city + 'padel courts' in first sentence. Court surface, count, unique feature. 100–200 chars.",
@@ -115,10 +114,14 @@ const CONTENT_SCHEMA = `{
   "slug": "string — lowercase hyphens only, no stop words. Contains primary keyword + city. ≤60 chars. E.g. 'padel-academy-madrid-5-days'."
 }`
 
-async function askClaude(prompt: string): Promise<string> {
+async function askClaude(
+  prompt: string,
+  model = MODEL_SONNET,
+  maxTokens = 8192,
+): Promise<string> {
   const message = await client.messages.create({
-    model: MODEL,
-    max_tokens: 8192,
+    model,
+    max_tokens: maxTokens,
     system:
       "You are a JSON API. Respond with a single valid JSON object only. " +
       "Do NOT use markdown. Do NOT wrap in code fences. " +
@@ -164,10 +167,15 @@ function parseJSON(raw: string): ProductContentData {
   }
 }
 
-async function askClaudeWithRetry(prompt: string, attempts = 3): Promise<ProductContentData> {
+async function askClaudeWithRetry(
+  prompt: string,
+  model = MODEL_SONNET,
+  maxTokens = 8192,
+  attempts = 3,
+): Promise<ProductContentData> {
   for (let i = 0; i < attempts; i++) {
     try {
-      const raw = await askClaude(prompt)
+      const raw = await askClaude(prompt, model, maxTokens)
       return parseJSON(raw)
     } catch (err) {
       console.warn(`Attempt ${i + 1} failed:`, err instanceof Error ? err.message : err)
@@ -219,7 +227,7 @@ Generate comprehensive, SEO-optimised product page content in ENGLISH.
 3. slug MUST be lowercase-hyphens-only, contain primary keyword + city, ≤60 chars
 4. title MUST have the primary keyword in the first 3 words
 5. experienceShort MUST open with the primary keyword or destination name
-6. highlights MUST be benefit statements (not feature lists) — start each with a number or action verb
+6. highlights MUST be short keyword tags (1–4 words) — specific, evocative, NO full sentences. Think "5-Star Hotel", "Small Groups", "Beachfront Courts", "Video Analysis". These are at-a-glance chips, not bullets.
 7. partnerDescription MUST include the coach's specific certification level (PP/FIP) and methodology
 8. Do NOT use vague phrases: "amazing", "unforgettable journey", "unique experience" — always be specific
 
@@ -311,7 +319,7 @@ SEO localisation rules (critical):
 - metaTitle: rewrite for ${langName} — STRICTLY ≤60 characters, include primary ${langName} padel keyword + city
 - metaDescription: rewrite for ${langName} — STRICTLY ≤160 characters, primary keyword in sentence 1, CTA in sentence 2
 - experienceShort: open with the ${langName} primary padel keyword or destination name; 400–600 chars
-- highlights: translate as benefit statements, keep starting with numbers or verbs
+- highlights: translate as short keyword tags (1–4 words), keep the same concise chip format
 - All other fields: natural fluent ${langName}, keyword-rich but never stuffed
 - Target keyword cluster for ${langName}: ${seoKeywordsPerLang[targetLanguage]}
 
@@ -324,27 +332,17 @@ Output ONLY the translated JSON, nothing else.
 English content:
 ${JSON.stringify(englishContent)}`
 
-  const translated = await askClaudeWithRetry(prompt)
+  // Haiku: 20× cheaper than Sonnet, 4096 tokens is more than enough for a translation
+  const translated = await askClaudeWithRetry(prompt, MODEL_HAIKU, 4096)
   // Post-processing pass: catches any terms the model missed
   return applyTermMap(translated, targetLanguage) as ProductContentData
 }
 
+// Generates only English — translations are triggered on-demand from the editor
 export async function generateAllLanguages(
   briefText: string,
   category: string
 ): Promise<Record<string, ProductContentData>> {
   const english = await generateEnglishContent(briefText, category)
-
-  const [italian, spanish, french] = await Promise.all([
-    translateContent(english, "IT"),
-    translateContent(english, "ES"),
-    translateContent(english, "FR"),
-  ])
-
-  return {
-    EN: english,
-    IT: italian,
-    ES: spanish,
-    FR: french,
-  }
+  return { EN: english }
 }
