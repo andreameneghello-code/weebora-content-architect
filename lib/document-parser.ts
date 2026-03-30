@@ -1,7 +1,10 @@
 export async function parsePDF(buffer: Buffer): Promise<string> {
+  // pdf-parse v2.x uses a class-based API — pass the buffer as a base64 data URL
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pdfParse = require("pdf-parse")
-  const result = await pdfParse(buffer)
+  const { PDFParse } = require("pdf-parse")
+  const dataUrl = `data:application/pdf;base64,${buffer.toString("base64")}`
+  const parser = new PDFParse({ url: dataUrl })
+  const result = await parser.getText()
   return result.text
 }
 
