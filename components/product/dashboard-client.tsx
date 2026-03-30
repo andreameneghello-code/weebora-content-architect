@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   PlusCircle, Search, Filter, Edit3, Trash2, Eye,
@@ -16,13 +16,14 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/lib/use-toast"
 import { CATEGORY_LABELS } from "@/lib/tone-of-voice"
-import { getProducts, deleteProduct, type LocalProduct } from "@/lib/local-storage"
+import { getProducts, deleteProduct } from "@/lib/api-client"
+import type { Product } from "@/lib/types"
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "secondary" | "warning" | "success" | "default" | "outline" }> = {
-  DRAFT:      { label: "Draft",          variant: "outline" },
-  GENERATING: { label: "Generating...",  variant: "warning" },
-  GENERATED:  { label: "Generated",      variant: "secondary" },
-  CURATED:    { label: "Curated",        variant: "success" },
+  DRAFT:      { label: "Draft",         variant: "outline" },
+  GENERATING: { label: "Generating…",   variant: "warning" },
+  GENERATED:  { label: "Generated",     variant: "secondary" },
+  CURATED:    { label: "Curated",       variant: "success" },
 }
 
 const CATEGORY_BADGE_VARIANTS: Record<string, "academy" | "holiday" | "tournament" | "group_trip"> = {
@@ -37,31 +38,34 @@ const STATUS_FILTERS   = ["ALL", "DRAFT", "GENERATED", "CURATED"]
 
 export function DashboardClient() {
   const { toast } = useToast()
-  const [products, setProducts] = useState<LocalProduct[]>([])
-  const [loaded, setLoaded]     = useState(false)
-  const [search, setSearch]     = useState("")
-  const [catFilter, setCatFilter] = useState("ALL")
-  const [statusFilter, setStatusFilter] = useState("ALL")
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [products,      setProducts]     = useState<Product[]>([])
+  const [loaded,        setLoaded]       = useState(false)
+  const [error,         setError]        = useState("")
+  const [search,        setSearch]       = useState("")
+  const [catFilter,     setCatFilter]    = useState("ALL")
+  const [statusFilter,  setStatusFilter] = useState("ALL")
+  const [deleteId,      setDeleteId]     = useState<string | null>(null)
+  const [deleting,      setDeleting]     = useState(false)
 
-  useEffect(() => {
-    setProducts(getProducts())
-    setLoaded(true)
+  const load = useCallback(async () => {
+    try {
+      const data = await getProducts()
+      setProducts(data)
+      setLoaded(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load products")
+      setLoaded(true)
+    }
   }, [])
 
-  useEffect(() => {
-    const onFocus = () => setProducts(getProducts())
-    window.addEventListener("focus", onFocus)
-    return () => window.removeEventListener("focus", onFocus)
-  }, [])
+  useEffect(() => { load() }, [load])
 
   const filtered = products.filter((p) => {
-    const c = p.contents.EN
     const matchSearch =
       !search ||
-      c?.title?.toLowerCase().includes(search.toLowerCase()) ||
-      c?.location?.toLowerCase().includes(search.toLowerCase()) ||
-      c?.country?.toLowerCase().includes(search.toLowerCase())
+      p.title?.toLowerCase().includes(search.toLowerCase()) ||
+      p.location?.toLowerCase().includes(search.toLowerCase()) ||
+      p.country?.toLowerCase().includes(search.toLowerCase())
     return (
       matchSearch &&
       (catFilter === "ALL" || p.category === catFilter) &&
@@ -69,24 +73,35 @@ export function DashboardClient() {
     )
   })
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteProduct(deleteId)
-    setProducts(getProducts())
-    setDeleteId(null)
-    toast({ title: "Product deleted" })
+    setDeleting(true)
+    try {
+      await deleteProduct(deleteId)
+      setProducts((prev) => prev.filter((p) => p.id !== deleteId))
+      toast({ title: "Moved to Trash", description: "You can restore it from the Trash view." })
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" })
+    } finally {
+      setDeleting(false)
+      setDeleteId(null)
+    }
   }
 
   const fmt = (d: string) =>
     new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
 
-  if (!loaded) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 size={22} className="animate-spin text-[#3A2895]/40" />
-      </div>
-    )
-  }
+  if (!loaded) return (
+    <div className="flex items-center justify-center h-full">
+      <Loader2 size={22} className="animate-spin text-[#3A2895]/40" />
+    </div>
+  )
+
+  if (error) return (
+    <div className="flex items-center justify-center h-full">
+      <p className="text-sm text-[#9E9BAC]">{error}</p>
+    </div>
+  )
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -111,7 +126,7 @@ export function DashboardClient() {
         <div className="relative flex-1 max-w-xs">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9E9BAC]" />
           <Input
-            placeholder="Search products..."
+            placeholder="Search products…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -119,7 +134,6 @@ export function DashboardClient() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Filter size={13} className="text-[#9E9BAC]" />
-          {/* Category pills */}
           <div className="flex gap-1 flex-wrap">
             {CATEGORY_FILTERS.map((f) => (
               <button
@@ -136,7 +150,6 @@ export function DashboardClient() {
             ))}
           </div>
           <div className="w-px h-4 bg-[#E4E0F0]" />
-          {/* Status pills */}
           <div className="flex gap-1 flex-wrap">
             {STATUS_FILTERS.map((f) => (
               <button
@@ -166,10 +179,7 @@ export function DashboardClient() {
               <p className="font-semibold text-[#1A1530] mb-1">No products yet</p>
               <p className="text-sm text-[#9E9BAC] mb-6">Create your first product to get started</p>
               <Link href="/products/new">
-                <Button>
-                  <PlusCircle size={15} />
-                  Create First Product
-                </Button>
+                <Button><PlusCircle size={15} className="mr-2" />Create First Product</Button>
               </Link>
             </>
           ) : (
@@ -181,25 +191,18 @@ export function DashboardClient() {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((product) => {
-          const content = product.contents.EN
-          const statusCfg = STATUS_CONFIG[product.status] ?? STATUS_CONFIG.DRAFT
+          const statusCfg  = STATUS_CONFIG[product.status] ?? STATUS_CONFIG.DRAFT
           const catVariant = CATEGORY_BADGE_VARIANTS[product.category]
+          const content    = product.contents.EN
 
           return (
-            <Card
-              key={product.id}
-              className="hover:shadow-[0_6px_20px_rgba(58,40,149,0.1)] transition-all group"
-            >
+            <Card key={product.id} className="hover:shadow-[0_6px_20px_rgba(58,40,149,0.1)] transition-all group">
               <CardContent className="p-5">
-                {/* Badges */}
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex gap-1.5 flex-wrap">
-                    <Badge variant={catVariant}>
-                      {CATEGORY_LABELS[product.category] ?? product.category}
-                    </Badge>
+                    <Badge variant={catVariant}>{CATEGORY_LABELS[product.category] ?? product.category}</Badge>
                     <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
                   </div>
-                  {/* Actions */}
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Link href={`/products/${product.id}/edit`}>
                       <button className="p-1.5 rounded-lg hover:bg-[#EEE9FF] text-[#9E9BAC] hover:text-[#3A2895] transition-colors" title="Edit">
@@ -213,7 +216,7 @@ export function DashboardClient() {
                     </Link>
                     <button
                       className="p-1.5 rounded-lg hover:bg-[#FFEDED] text-[#9E9BAC] hover:text-[#D94F4F] transition-colors"
-                      title="Delete"
+                      title="Move to Trash"
                       onClick={() => setDeleteId(product.id)}
                     >
                       <Trash2 size={13} />
@@ -222,26 +225,22 @@ export function DashboardClient() {
                 </div>
 
                 <h3 className="font-semibold text-[#1A1530] text-sm leading-snug mb-1 line-clamp-2">
-                  {content?.title ?? "Untitled Product"}
+                  {product.title || content?.title || "Untitled Product"}
                 </h3>
 
                 <div className="flex items-center gap-3 text-xs text-[#9E9BAC] mt-3 flex-wrap">
-                  {(content?.location || content?.country) && (
+                  {(product.location || product.country) && (
                     <span className="flex items-center gap-1">
                       <MapPin size={11} />
-                      {[content.location, content.country].filter(Boolean).join(", ")}
+                      {[product.location, product.country].filter(Boolean).join(", ")}
                     </span>
                   )}
                   {content?.duration && (
-                    <span className="flex items-center gap-1">
-                      <Clock size={11} />
-                      {content.duration}
-                    </span>
+                    <span className="flex items-center gap-1"><Clock size={11} />{content.duration}</span>
                   )}
                   {content?.priceFrom && (
                     <span className="flex items-center gap-1 text-[#3A2895] font-semibold">
-                      <Tag size={11} />
-                      from {content.priceFrom}
+                      <Tag size={11} />from {content.priceFrom}
                     </span>
                   )}
                 </div>
@@ -251,14 +250,12 @@ export function DashboardClient() {
                   <div className="flex gap-3">
                     <Link href={`/products/${product.id}/preview`}>
                       <button className="text-xs text-[#9E9BAC] hover:text-[#3A2895] flex items-center gap-1 transition-colors">
-                        <Eye size={11} />
-                        Preview
+                        <Eye size={11} />Preview
                       </button>
                     </Link>
                     <Link href={`/products/${product.id}/edit`}>
                       <button className="text-xs text-[#3A2895] hover:text-[#2B1D78] flex items-center gap-1 font-semibold transition-colors">
-                        <Edit3 size={11} />
-                        Edit
+                        <Edit3 size={11} />Edit
                       </button>
                     </Link>
                   </div>
@@ -269,18 +266,21 @@ export function DashboardClient() {
         })}
       </div>
 
-      {/* Delete dialog */}
+      {/* Soft-delete confirm */}
       <Dialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete product?</DialogTitle>
+            <DialogTitle>Move to Trash?</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. The product and all its content will be permanently deleted.
+              The product will be moved to Trash. You can restore it any time from the Trash view.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <Loader2 size={13} className="animate-spin mr-1" /> : null}
+              Move to Trash
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

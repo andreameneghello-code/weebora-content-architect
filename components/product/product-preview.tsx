@@ -4,15 +4,15 @@ import { useState } from "react"
 import Link from "next/link"
 import {
   ChevronLeft, Edit3, MapPin, Clock, Tag, Star,
-  Check, X, ChevronDown, ChevronUp, FileDown, Loader2,
+  Check, X, ChevronDown, ChevronUp,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CATEGORY_LABELS, LANGUAGE_FLAGS } from "@/lib/tone-of-voice"
-import { type LocalProduct, type Language } from "@/lib/local-storage"
+import type { Language } from "@/lib/types"
+import type { Product } from "@/lib/types"
 import type { ProductContentData } from "@/lib/gemini"
-import { QuotePDF } from "./quote-pdf"
 
 const LANGUAGES: Language[] = ["EN", "IT", "ES", "FR"]
 
@@ -20,140 +20,9 @@ const LANG_LABELS: Record<Language, string> = {
   EN: "EN", IT: "IT", ES: "ES", FR: "FR",
 }
 
-export function ProductPreview({ product }: { product: LocalProduct }) {
+export function ProductPreview({ product }: { product: Product }) {
   const [activeLanguage, setActiveLanguage] = useState<Language>("EN")
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([0]))
-  const [printing, setPrinting] = useState(false)
-
-  const exportPDF = async () => {
-    const element = document.getElementById("printable-content")
-    if (!element) return
-
-    setPrinting(true)
-
-    try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ])
-
-      // ── 1. Reposition wrapper so the hidden template is at viewport (0,0) ──
-      const wrapper = element.parentElement as HTMLElement
-      const prevStyle = wrapper.getAttribute("style") ?? ""
-      wrapper.style.cssText =
-        "position:fixed;top:0;left:0;width:800px;z-index:-1;background:white;overflow:visible;"
-      element.style.width = "800px"
-
-      // ── 2. Wait for browser reflow + all images loaded + SVGs painted ──────
-      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
-
-      await new Promise<void>((resolve) => {
-        const imgs = Array.from(element.querySelectorAll("img"))
-        if (imgs.length === 0) { resolve(); return }
-        let done = 0
-        const tick = () => { if (++done >= imgs.length) resolve() }
-        imgs.forEach((img) => {
-          if ((img as HTMLImageElement).complete) tick()
-          else { img.onload = tick; img.onerror = tick }
-        })
-      })
-
-      // Extra buffer for SVG elements, icons, and web font kerning to finish rendering
-      await new Promise((r) => setTimeout(r, 500))
-
-      // ── 3. Measure section boundaries BEFORE capture ──────────────────────
-      //    Each [data-pdf-section] bottom in CSS pixels, relative to element top.
-      //    Multiplied by 2 to match html2canvas scale:2 canvas pixels.
-      const elementTop = element.getBoundingClientRect().top
-      const sectionEls = Array.from(element.querySelectorAll("[data-pdf-section]"))
-      const sectionBottomsPx = sectionEls.map((s) => {
-        const r = (s as HTMLElement).getBoundingClientRect()
-        return (r.bottom - elementTop) * 2
-      })
-
-      // ── 4. Capture ────────────────────────────────────────────────────────
-      const canvas = await html2canvas(element, {
-        logging:     false,
-        useCORS:     true,
-        allowTaint:  false,
-        scale:       2,
-        width:       800,
-        windowWidth: 800,
-        scrollX:     0,
-        scrollY:     0,
-        onclone: (clonedDoc: Document) => {
-          const cloned = clonedDoc.getElementById("printable-content")
-          if (cloned) {
-            cloned.style.position = "relative"
-            cloned.style.top = "0"
-            cloned.style.left = "0"
-            const p = cloned.parentElement
-            if (p) { p.style.position = "relative"; p.style.top = "0"; p.style.left = "0" }
-          }
-        },
-      })
-
-      // Restore hidden wrapper immediately after capture
-      wrapper.setAttribute("style", prevStyle)
-
-      // ── 5. Smart section-aware slicing ────────────────────────────────────
-      const pdf    = new jsPDF({ orientation: "portrait", format: "a4", unit: "pt" })
-      const pdfW   = pdf.internal.pageSize.getWidth()   // 595.28 pt
-      const pdfH   = pdf.internal.pageSize.getHeight()  // 841.89 pt
-
-      // Scale factor: canvas pixels → PDF points
-      const canvasToPt  = pdfW / canvas.width           // ≈ 0.372 pt/px
-      const pageHeightPx = Math.floor(pdfH / canvasToPt) // ≈ 2268 canvas px per A4 page
-
-      let startPx = 0
-      let pageNum = 0
-
-      while (startPx < canvas.height) {
-        if (pageNum > 0) pdf.addPage()
-
-        let endPx = Math.min(startPx + pageHeightPx, canvas.height)
-
-        if (endPx < canvas.height) {
-          // Find all section bottoms that land within [startPx … endPx]
-          const inRange = sectionBottomsPx.filter((b) => b > startPx && b <= endPx)
-
-          if (inRange.length > 0) {
-            // Cut right after the last complete section on this page
-            endPx = Math.max(...inRange)
-          } else {
-            // No section fits cleanly — check if the very next section starts
-            // within 80 canvas-px after the page boundary; if so, start it fresh
-            // on the next page (keep endPx at pageHeightPx, creating a short page).
-            // Otherwise keep the default cut (unavoidable long block).
-          }
-        }
-
-        // Crop a canvas slice for this page
-        const sliceH = endPx - startPx
-        const sliceCanvas = document.createElement("canvas")
-        sliceCanvas.width  = canvas.width
-        sliceCanvas.height = sliceH
-        const ctx = sliceCanvas.getContext("2d")!
-        ctx.drawImage(canvas, 0, startPx, canvas.width, sliceH, 0, 0, canvas.width, sliceH)
-
-        const sliceData    = sliceCanvas.toDataURL("image/jpeg", 0.95)
-        const sliceHeightPt = sliceH * canvasToPt
-        pdf.addImage(sliceData, "JPEG", 0, 0, pdfW, sliceHeightPt)
-
-        startPx = endPx
-        pageNum++
-      }
-
-      const titleSlug = ((product.contents[activeLanguage]?.title as string | undefined) ?? "quote")
-        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-      pdf.save(`weebora-${titleSlug}.pdf`)
-
-    } catch (err) {
-      console.error("PDF export failed:", err)
-    } finally {
-      setPrinting(false)
-    }
-  }
 
   const content: Partial<ProductContentData> = product.contents[activeLanguage] ?? {}
 
@@ -184,7 +53,6 @@ export function ProductPreview({ product }: { product: LocalProduct }) {
   }
 
   return (
-    <>
     <div className="min-h-full bg-white">
       {/* Top bar */}
       <div className="sticky top-0 z-10 h-14 bg-white border-b border-[#E4E0F0] flex items-center justify-between px-6">
@@ -209,18 +77,6 @@ export function ProductPreview({ product }: { product: LocalProduct }) {
               ))}
             </TabsList>
           </Tabs>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={exportPDF}
-            disabled={printing}
-            className="gap-1.5"
-          >
-            {printing
-              ? <Loader2 size={14} className="animate-spin" />
-              : <FileDown size={14} />}
-            {printing ? "Building PDF…" : "Export PDF"}
-          </Button>
           <Link href={`/products/${product.id}/edit`}>
             <Button size="sm" className="gap-1.5 shadow-[0_2px_8px_rgba(58,40,149,0.2)]">
               <Edit3 size={14} />
@@ -273,45 +129,57 @@ export function ProductPreview({ product }: { product: LocalProduct }) {
           </div>
 
           {highlights.length > 0 && (
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {highlights.map((h, i) => (
-                <div key={i} className="flex items-start gap-2.5 p-3 bg-[#EEE9FF] rounded-xl">
-                  <Check size={15} className="text-[#3A2895] shrink-0 mt-0.5" />
-                  <span className="text-sm text-[#1A1530]">{h}</span>
-                </div>
-              ))}
+            <div className="mt-5">
+              <p className="text-xs font-semibold text-[#9E9BAC] uppercase tracking-widest mb-3">At a Glance</p>
+              <div className="flex flex-wrap gap-2">
+                {highlights.map((h, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-semibold bg-[#3A2895] text-white"
+                  >
+                    {h}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </section>
 
-        {/* Padel / Relax balance bar */}
-        {typeof content.balanceScore === "number" && (
+        {/* Program Profile */}
+        {product.programProfile && (
           <section>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#3A2895]" />
-                <span className="text-xs font-bold text-[#3A2895]">Padel</span>
-              </div>
-              <span className="text-xs font-semibold text-[#6B6882] bg-[#F5F4FA] px-2.5 py-0.5 rounded-full border border-[#E4E0F0]">
-                {content.balanceScore <= 20 ? "Full intensity"
-                  : content.balanceScore <= 40 ? "Mostly padel"
-                  : content.balanceScore <= 60 ? "Balanced"
-                  : content.balanceScore <= 80 ? "Mostly relaxed"
-                  : "Pure relaxation"}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-[#3EC9C1]">Relax</span>
-                <span className="w-2 h-2 rounded-full bg-[#3EC9C1]" />
-              </div>
+            <div className="flex items-center gap-2 mb-4">
+              <h2 className="text-xl font-bold text-[#1A1530]">Program Profile</h2>
+              <Badge variant="secondary">Internal</Badge>
             </div>
-            <div className="h-2 rounded-full overflow-hidden bg-[#EEE9FF]">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${content.balanceScore}%`,
-                  background: "linear-gradient(to right, #3A2895, #3EC9C1)",
-                }}
-              />
+            <div className="bg-[#F5F4FA] rounded-2xl border border-[#E4E0F0] p-5 space-y-4">
+              {[
+                { label: "Technique", value: product.programProfile.technique, color: "#3A2895" },
+                { label: "Tactics",   value: product.programProfile.tactics,   color: "#6B4FD8" },
+                { label: "Play",      value: product.programProfile.play,       color: "#3EC9C1" },
+              ].map((skill) => (
+                <div key={skill.label} className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-[#6B6882]">{skill.label}</span>
+                    <span style={{ color: skill.color }}>{skill.value}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-[#E4E0F0] overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${skill.value}%`, background: skill.color }} />
+                  </div>
+                </div>
+              ))}
+              <div className="pt-2 border-t border-[#F0EDF8]">
+                <div className="flex justify-between text-xs font-semibold mb-2">
+                  <span className="text-[#3A2895]">Padel</span>
+                  <span className="text-[#3EC9C1]">Relax</span>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{
+                    width: `${product.programProfile.balance}%`,
+                    background: "linear-gradient(to right, #3A2895, #3EC9C1)",
+                  }} />
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -512,70 +380,6 @@ export function ProductPreview({ product }: { product: LocalProduct }) {
           </section>
         )}
 
-        {/* Program Profile */}
-        {(content.profileTechnique || content.profileTactics || content.profilePlay || typeof content.profileIntensity === "number") && (
-          <section>
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-xl font-bold text-[#1A1530]">Program Profile</h2>
-              <Badge variant="secondary">Internal</Badge>
-            </div>
-            <div className="bg-[#FAFAF9] rounded-2xl border border-[#E4E0F0] p-5 space-y-5">
-              {/* Skill rows */}
-              {[
-                { label: "Technique", value: content.profileTechnique as number | undefined },
-                { label: "Tactics",   value: content.profileTactics   as number | undefined },
-                { label: "Play",      value: content.profilePlay      as number | undefined },
-              ].filter((s) => typeof s.value === "number" && s.value > 0).map((skill) => (
-                <div key={skill.label} className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-[#1A1530] w-20 shrink-0">{skill.label}</span>
-                  <div className="flex gap-1.5">
-                    {Array.from({ length: 5 }, (_, i) => (
-                      <svg key={i} width="18" height="18" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-                        <circle cx="11" cy="11" r="10" fill={i < (skill.value ?? 0) ? "#3EC9C1" : "#E4E0F0"} />
-                        <path d="M4.5 7.5 C7.5 9 7.5 13 4.5 14.5" stroke={i < (skill.value ?? 0) ? "white" : "#C8C4D4"} strokeWidth="1.6" strokeLinecap="round" fill="none" />
-                        <path d="M17.5 7.5 C14.5 9 14.5 13 17.5 14.5" stroke={i < (skill.value ?? 0) ? "white" : "#C8C4D4"} strokeWidth="1.6" strokeLinecap="round" fill="none" />
-                      </svg>
-                    ))}
-                  </div>
-                  <span className="text-xs font-bold text-[#3EC9C1] ml-auto">{skill.value}/5</span>
-                </div>
-              ))}
-
-              {/* Intensity bar */}
-              {typeof content.profileIntensity === "number" && (
-                <div className="pt-2 border-t border-[#F0EDF8]">
-                  <div className="flex items-center justify-between mb-2 text-xs font-semibold">
-                    <div className="flex items-center gap-1.5 text-[#9E9BAC]">
-                      <span className="w-2 h-2 rounded-full bg-[#E4E0F0]" />
-                      Relax
-                    </div>
-                    <span className="text-[#6B6882] bg-[#F5F4FA] px-2.5 py-0.5 rounded-full border border-[#E4E0F0]">
-                      {content.profileIntensity <= 15 ? "Pure relaxation"
-                        : content.profileIntensity <= 35 ? "Mostly relaxed"
-                        : content.profileIntensity <= 65 ? "Balanced"
-                        : content.profileIntensity <= 85 ? "Mostly intensive"
-                        : "Max intensity"}
-                    </span>
-                    <div className="flex items-center gap-1.5 text-[#1FA89E]">
-                      Padel
-                      <span className="w-2 h-2 rounded-full bg-[#3EC9C1]" />
-                    </div>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden bg-[#E4E0F0]">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${content.profileIntensity}%`,
-                        background: "linear-gradient(to right, #E4E0F0, #3EC9C1)",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
         {/* SEO Fields (internal) */}
         {(content.metaTitle || content.metaDescription || content.slug) && (
           <section className="border-t border-dashed border-[#E4E0F0] pt-8">
@@ -613,15 +417,5 @@ export function ProductPreview({ product }: { product: LocalProduct }) {
         )}
       </div>
     </div>
-
-    {/* Hidden PDF template – off-screen; exportPDF temporarily repositions it for html2canvas */}
-    <div
-      id="pdf-hidden-wrapper"
-      style={{ position: "fixed", top: 0, left: "-9999px", width: 800, zIndex: -1, background: "white" }}
-      aria-hidden="true"
-    >
-      <QuotePDF product={product} language={activeLanguage} />
-    </div>
-    </>
   )
 }

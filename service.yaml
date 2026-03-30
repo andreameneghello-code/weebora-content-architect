@@ -1,0 +1,57 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: weebora-content-architect
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scale to zero when idle — cost-effective for a 5-person team
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "3"
+        # Allow 300s for AI generation requests
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      serviceAccountName: content-architect-sa@PROJECT_ID.iam.gserviceaccount.com
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/PROJECT_ID/weebora-content-architect:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          env:
+            # ── NextAuth ──────────────────────────────────────────────────────
+            - name: NEXTAUTH_URL
+              value: "https://YOUR_CLOUD_RUN_URL"
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nextauth-secret
+                  key: latest
+            # ── Google OAuth ──────────────────────────────────────────────────
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: google-client-id
+                  key: latest
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: google-client-secret
+                  key: latest
+            # ── AI ────────────────────────────────────────────────────────────
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-api-key
+                  key: latest
+            # ── GCP ───────────────────────────────────────────────────────────
+            - name: GCP_PROJECT_ID
+              value: "YOUR_PROJECT_ID"
+            - name: GCS_BUCKET_NAME
+              value: "YOUR_BUCKET_NAME"

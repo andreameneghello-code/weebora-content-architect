@@ -10,9 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/lib/use-toast"
-import { createProduct, setAllLanguageContents, updateProduct } from "@/lib/local-storage"
+import { createProduct, generateProductContent } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
-import type { ProductContentData } from "@/lib/gemini"
 
 const CATEGORIES = [
   {
@@ -61,9 +60,7 @@ const GENERATION_STEPS = [
   "Parsing brief document...",
   "Analysing product category...",
   "Generating English content...",
-  "Translating to Italian...",
-  "Translating to Spanish...",
-  "Translating to French...",
+  "Optimising SEO fields...",
   "Finalising and saving...",
 ]
 
@@ -112,7 +109,7 @@ export function NewProductWizard() {
     setProgress(5)
 
     try {
-      // Step 1: Parse document
+      // Step 1: Upload & parse PDF → also persists to GCS
       const formData = new FormData()
       formData.append("file", file)
       const uploadRes = await fetch("/api/upload", { method: "POST", body: formData })
@@ -120,54 +117,35 @@ export function NewProductWizard() {
         const err = await uploadRes.json()
         throw new Error(err.error ?? "Failed to parse document")
       }
-      const { text } = await uploadRes.json()
+      const { text, briefPdfUrl } = await uploadRes.json() as { text: string; briefPdfUrl: string | null }
 
       setGenerationStep(1)
       setProgress(15)
 
-      // Create product in localStorage immediately
-      const product = createProduct(category as never, text)
-      updateProduct(product.id, { status: "GENERATING" })
+      // Step 2: Create product document in Firestore
+      const product = await createProduct(category as never, text, briefPdfUrl)
 
       setGenerationStep(2)
       setProgress(25)
 
-      // Animate progress steps while generation runs
+      // Step 3-6: Generate AI content via Firestore-backed route
       let stepIndex = 2
       const stepInterval = setInterval(() => {
         if (stepIndex < GENERATION_STEPS.length - 2) {
           stepIndex++
           setGenerationStep(stepIndex)
-          setProgress(25 + Math.round((stepIndex / (GENERATION_STEPS.length - 2)) * 60))
+          setProgress(25 + Math.round((stepIndex / (GENERATION_STEPS.length - 2)) * 65))
         }
       }, 5000)
 
-      // Call the generate API
-      const genRes = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ briefText: text, category }),
-      })
+      await generateProductContent(product.id)
       clearInterval(stepInterval)
-
-      if (!genRes.ok) {
-        const err = await genRes.json()
-        updateProduct(product.id, { status: "DRAFT" })
-        throw new Error(err.error ?? "Generation failed")
-      }
-
-      const { content } = await genRes.json() as { content: Record<string, ProductContentData> }
-
-      // Save all language contents to localStorage
-      setAllLanguageContents(product.id, content)
 
       setGenerationStep(GENERATION_STEPS.length - 1)
       setProgress(100)
       setStep("done")
 
-      setTimeout(() => {
-        router.push(`/products/${product.id}/edit`)
-      }, 1200)
+      setTimeout(() => router.push(`/products/${product.id}/edit`), 1200)
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong"
       toast({ title: "Generation failed", description: message, variant: "destructive" })

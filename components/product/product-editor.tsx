@@ -12,7 +12,11 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/lib/use-toast"
 import { CATEGORY_LABELS, LANGUAGE_LABELS, LANGUAGE_FLAGS } from "@/lib/tone-of-voice"
-import { updateProductContent, type LocalProduct, type Language } from "@/lib/local-storage"
+import {
+  updateProductContent,
+  updateProgramProfile,
+} from "@/lib/api-client"
+import type { Product, Language, ProgramProfile } from "@/lib/types"
 import type { ProductContentData } from "@/lib/gemini"
 import { SectionHero } from "./sections/section-hero"
 import { SectionExperience } from "./sections/section-experience"
@@ -29,32 +33,18 @@ import { SectionProgramProfile } from "./sections/section-program-profile"
 
 const LANGUAGES: Language[] = ["EN", "IT", "ES", "FR"]
 
-const SECTIONS = [
-  { id: "hero",         label: "Hero",           icon: Star,          Component: SectionHero },
-  { id: "experience",   label: "The Experience",  icon: AlignLeft,     Component: SectionExperience },
-  { id: "venue",        label: "Venue",           icon: Building2,     Component: SectionVenue },
-  { id: "travel-detail",label: "Travel Detail",   icon: Plane,         Component: SectionTravelDetail },
-  { id: "inclusions",   label: "Inclusions",      icon: ListChecks,    Component: SectionInclusions },
-  { id: "itinerary",    label: "Itinerary",       icon: Calendar,      Component: SectionItinerary },
-  { id: "accommodation",label: "Accommodation",   icon: Hotel,         Component: SectionAccommodation },
-  { id: "cancellation", label: "Cancellation",    icon: AlertTriangle, Component: SectionCancellation },
-  { id: "partner",      label: "Partner",         icon: Handshake,     Component: SectionPartner },
-  { id: "useful-info",  label: "Useful Info",     icon: Info,          Component: SectionUsefulInfo },
-  { id: "seo",          label: "SEO Fields",      icon: Search,        Component: SectionSEO },
-  { id: "program-profile", label: "Program Profile", icon: BarChart2, Component: SectionProgramProfile },
-]
-
 interface Props {
-  product: LocalProduct
-  onUpdate: (updated: LocalProduct) => void
+  product:  Product
+  onUpdate: (updated: Product) => void
 }
 
 export function ProductEditor({ product, onUpdate }: Props) {
   const { toast } = useToast()
   const [activeLanguage, setActiveLanguage] = useState<Language>("EN")
-  const [saving, setSaving] = useState(false)
-  const [savedSections, setSavedSections] = useState<Set<string>>(new Set())
+  const [saving,    setSaving]    = useState(false)
+  const [savedSecs, setSavedSecs] = useState<Set<string>>(new Set())
 
+  // Per-language content draft
   const [draftContents, setDraftContents] = useState<Record<Language, Partial<ProductContentData>>>(
     () => ({
       EN: { ...(product.contents.EN ?? {}) },
@@ -64,23 +54,28 @@ export function ProductEditor({ product, onUpdate }: Props) {
     })
   )
 
-  const updateField = (lang: Language, field: string, value: unknown) => {
-    setDraftContents((prev) => ({
-      ...prev,
-      [lang]: { ...prev[lang], [field]: value },
-    }))
-  }
+  // Program profile draft (language-independent)
+  const [draftProfile, setDraftProfile] = useState<ProgramProfile>(
+    product.programProfile ?? { technique: 50, tactics: 50, play: 50, balance: 50 }
+  )
 
-  const saveSection = (sectionId: string) => {
+  const updateField = (lang: Language, field: string, value: unknown) =>
+    setDraftContents((prev) => ({ ...prev, [lang]: { ...prev[lang], [field]: value } }))
+
+  const saveSection = async (sectionId: string) => {
     setSaving(true)
     try {
-      let updatedProduct: LocalProduct | null = null
-      for (const lang of LANGUAGES) {
-        updatedProduct = updateProductContent(product.id, lang, draftContents[lang])
+      let updated: Product | null = null
+      if (sectionId === "program-profile") {
+        updated = await updateProgramProfile(product.id, draftProfile)
+      } else {
+        for (const lang of LANGUAGES) {
+          updated = await updateProductContent(product.id, lang, draftContents[lang])
+        }
       }
-      if (updatedProduct) onUpdate(updatedProduct)
-      setSavedSections((prev) => new Set([...prev, sectionId]))
-      toast({ title: "Saved", description: "Section saved in all languages" })
+      if (updated) onUpdate(updated)
+      setSavedSecs((prev) => new Set([...prev, sectionId]))
+      toast({ title: "Saved", description: "Section saved successfully" })
     } catch {
       toast({ title: "Save failed", variant: "destructive" })
     } finally {
@@ -88,15 +83,16 @@ export function ProductEditor({ product, onUpdate }: Props) {
     }
   }
 
-  const saveAll = () => {
+  const saveAll = async () => {
     setSaving(true)
     try {
-      let updatedProduct: LocalProduct | null = null
+      let updated: Product | null = null
       for (const lang of LANGUAGES) {
-        updatedProduct = updateProductContent(product.id, lang, draftContents[lang])
+        updated = await updateProductContent(product.id, lang, draftContents[lang])
       }
-      if (updatedProduct) onUpdate(updatedProduct)
-      setSavedSections(new Set(SECTIONS.map((s) => s.id)))
+      updated = await updateProgramProfile(product.id, draftProfile)
+      if (updated) onUpdate(updated)
+      setSavedSecs(new Set([...CONTENT_SECTIONS.map((s) => s.id), "program-profile"]))
       toast({ title: "All saved!", description: "All sections saved in all 4 languages" })
     } catch {
       toast({ title: "Save failed", variant: "destructive" })
@@ -106,9 +102,39 @@ export function ProductEditor({ product, onUpdate }: Props) {
   }
 
   const sectionProps = {
-    content: draftContents[activeLanguage] as Record<string, unknown>,
+    content:  draftContents[activeLanguage] as Record<string, unknown>,
     onChange: (field: string, value: unknown) => updateField(activeLanguage, field, value),
   }
+
+  const CONTENT_SECTIONS = [
+    { id: "hero",          label: "Hero",           icon: Star,          node: <SectionHero {...sectionProps} /> },
+    { id: "experience",    label: "The Experience",  icon: AlignLeft,     node: <SectionExperience {...sectionProps} /> },
+    { id: "venue",         label: "Venue",           icon: Building2,     node: <SectionVenue {...sectionProps} /> },
+    { id: "travel-detail", label: "Travel Detail",   icon: Plane,         node: <SectionTravelDetail {...sectionProps} /> },
+    { id: "inclusions",    label: "Inclusions",      icon: ListChecks,    node: <SectionInclusions {...sectionProps} /> },
+    { id: "itinerary",     label: "Itinerary",       icon: Calendar,      node: <SectionItinerary {...sectionProps} /> },
+    { id: "accommodation", label: "Accommodation",   icon: Hotel,         node: <SectionAccommodation {...sectionProps} /> },
+    { id: "cancellation",  label: "Cancellation",    icon: AlertTriangle, node: <SectionCancellation {...sectionProps} /> },
+    { id: "partner",       label: "Partner",         icon: Handshake,     node: <SectionPartner {...sectionProps} /> },
+    { id: "useful-info",   label: "Useful Info",     icon: Info,          node: <SectionUsefulInfo {...sectionProps} /> },
+    { id: "seo",           label: "SEO Fields",      icon: Search,        node: <SectionSEO {...sectionProps} /> },
+  ]
+
+  const ALL_SECTIONS = [
+    ...CONTENT_SECTIONS,
+    {
+      id:    "program-profile",
+      label: "Program Profile",
+      icon:  BarChart2,
+      node:  (
+        <SectionProgramProfile
+          profile={draftProfile}
+          onChange={setDraftProfile}
+        />
+      ),
+      langIndependent: true,
+    },
+  ]
 
   return (
     <div className="flex h-full flex-col">
@@ -147,7 +173,7 @@ export function ProductEditor({ product, onUpdate }: Props) {
       <div className="flex-1 overflow-auto bg-[#F5F4FA]">
         <div className="max-w-3xl mx-auto px-6 py-6">
 
-          {/* Sticky language tabs */}
+          {/* Sticky language tabs (hidden for language-independent sections) */}
           <div className="sticky top-0 z-10 -mx-6 px-6 py-3 bg-[#F5F4FA]/95 backdrop-blur-sm border-b border-[#E4E0F0] mb-6">
             <Tabs value={activeLanguage} onValueChange={(v) => setActiveLanguage(v as Language)}>
               <TabsList>
@@ -161,22 +187,28 @@ export function ProductEditor({ product, onUpdate }: Props) {
             </Tabs>
           </div>
 
-          {/* All sections stacked */}
           <div className="space-y-4">
-            {SECTIONS.map(({ id, label, icon: Icon, Component }) => {
-              const isSaved = savedSections.has(id)
+            {ALL_SECTIONS.map(({ id, label, icon: Icon, node, ...rest }) => {
+              const isLangIndep = "langIndependent" in rest && rest.langIndependent
+              const isSaved = savedSecs.has(id)
               return (
-                <div key={id} id={`section-${id}`} className="bg-white rounded-2xl border border-[#E4E0F0] shadow-[0_2px_8px_rgba(58,40,149,0.04)] overflow-hidden">
-                  {/* Section header */}
+                <div
+                  key={id}
+                  id={`section-${id}`}
+                  className="bg-white rounded-2xl border border-[#E4E0F0] shadow-[0_2px_8px_rgba(58,40,149,0.04)] overflow-hidden"
+                >
                   <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#F0EDF8]">
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-lg bg-[#EEE9FF] flex items-center justify-center shrink-0">
                         <Icon size={14} className="text-[#3A2895]" />
                       </div>
                       <h2 className="text-sm font-bold text-[#1A1530]">{label}</h2>
-                      {isSaved && (
-                        <CheckCircle2 size={13} className="text-[#3EC9C1]" />
+                      {isLangIndep && (
+                        <span className="text-[10px] font-semibold text-[#9E9BAC] bg-[#F5F4FA] px-2 py-0.5 rounded-full border border-[#E4E0F0]">
+                          All languages
+                        </span>
                       )}
+                      {isSaved && <CheckCircle2 size={13} className="text-[#3EC9C1]" />}
                     </div>
                     <Button
                       size="sm"
@@ -189,11 +221,7 @@ export function ProductEditor({ product, onUpdate }: Props) {
                       Save
                     </Button>
                   </div>
-
-                  {/* Section body */}
-                  <div className="p-5">
-                    <Component {...sectionProps} />
-                  </div>
+                  <div className="p-5">{node}</div>
                 </div>
               )
             })}

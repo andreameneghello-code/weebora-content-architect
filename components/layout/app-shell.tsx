@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, PlusCircle, LogOut } from "lucide-react"
+import { LayoutDashboard, PlusCircle, Trash2, LogOut } from "lucide-react"
 import { signOut } from "next-auth/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
@@ -18,8 +18,9 @@ interface AppShellProps {
 }
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard",    label: "Dashboard",   icon: LayoutDashboard },
   { href: "/products/new", label: "New Product", icon: PlusCircle },
+  { href: "/trash",        label: "Trash",       icon: Trash2 },
 ]
 
 export function AppShell({ children, user }: AppShellProps) {
