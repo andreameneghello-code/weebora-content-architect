@@ -14,10 +14,10 @@ spec:
         # Allow 300s for AI generation requests
         run.googleapis.com/execution-environment: gen2
     spec:
-      serviceAccountName: content-architect-sa@PROJECT_ID.iam.gserviceaccount.com
+      serviceAccountName: content-architect-sa@aistudio-487614.iam.gserviceaccount.com
       timeoutSeconds: 300
       containers:
-        - image: gcr.io/PROJECT_ID/weebora-content-architect:latest
+        - image: gcr.io/aistudio-487614/weebora-content-architect:latest
           ports:
             - containerPort: 8080
           resources:
@@ -27,7 +27,7 @@ spec:
           env:
             # ── NextAuth ──────────────────────────────────────────────────────
             - name: NEXTAUTH_URL
-              value: "https://YOUR_CLOUD_RUN_URL"
+              value: "https://weebora-content-architect-840234787215.europe-west1.run.app"
             - name: NEXTAUTH_SECRET
               valueFrom:
                 secretKeyRef:
@@ -35,15 +35,9 @@ spec:
                   key: latest
             # ── Google OAuth ──────────────────────────────────────────────────
             - name: GOOGLE_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: google-client-id
-                  key: latest
+              value: ""
             - name: GOOGLE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: google-client-secret
-                  key: latest
+              value: ""
             # ── AI ────────────────────────────────────────────────────────────
             - name: ANTHROPIC_API_KEY
               valueFrom:
@@ -52,6 +46,6 @@ spec:
                   key: latest
             # ── GCP ───────────────────────────────────────────────────────────
             - name: GCP_PROJECT_ID
-              value: "YOUR_PROJECT_ID"
+              value: "aistudio-487614"
             - name: GCS_BUCKET_NAME
-              value: "YOUR_BUCKET_NAME"
+              value: "weebora-content-architect-briefs"
